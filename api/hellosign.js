@@ -1,5 +1,4 @@
-// File: /api/hellosign.js (Versi DIAGNOSTIK - AWAIT)
-// TUJUAN: Memaksa Vercel untuk menunggu balasan GAS.
+// File: /api/hellosign.js (Versi Final - Fire-and-Forget)
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -18,14 +17,14 @@ export default async function handler(req, res) {
   try {
     // 1. Baca body
     if (req.body && req.body.json) {
-      rawDataString = req.body.json;
+      rawDataString = req.body.json; // Dari Dropbox Sign
       body = JSON.parse(rawDataString);
     } else {
-      body = req.body;
+      body = req.body; // Dari tes Postman/PowerShell
       rawDataString = JSON.stringify(body);
     }
 
-    // 2. Handle 'callback_test' (Tetap sama)
+    // 2. Handle 'callback_test'
     if (body.event && body.event.event_type === 'callback_test') {
       const challenge = body.event.event_data.challenge;
       console.log(`[INFO] Handling callback_test. Responding with challenge: ${challenge}`);
@@ -33,41 +32,31 @@ export default async function handler(req, res) {
       return res.status(200).send(challenge);
     }
 
+    // 3. Catat event yang masuk
+    const eventType = body.event ? body.event.event_type : 'unknown';
     const eventHash = body.event ? body.event.event_hash : 'unknown';
-    console.log(`[DIAGNOSTIC] Received event hash: ${eventHash}.`);
+    console.log(`[INFO] Received event type: ${eventType}, hash: ${eventHash}.`);
 
-    // --- PERUBAHAN UTAMA DI SINI ---
-    // Kita akan 'await' fetch call ini.
-    // PowerShell akan 'hang' / menunggu selama proses ini.
-    console.log(`[DIAGNOSTIC] Forwarding to GAS... (awaiting response)`);
-    
-    try {
-      const response = await fetch(GAS_WEB_APP_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: rawDataString,
-      });
-      
+    // 4. [PENTING] Forward ke GAS (Fire and Forget)
+    // Kita *tidak* menggunakan 'await' di sini.
+    fetch(GAS_WEB_APP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: rawDataString,
+    })
+    .then(response => {
       if (!response.ok) {
-        // Jika GAS error (misal: "Sheet not found" atau "Access Denied")
-        const gasError = await response.text();
-        console.error(`[DIAGNOSTIC_ERROR_GAS] GAS responded with status: ${response.status}. Body: ${gasError}`);
-        // Kirim error GAS kembali ke PowerShell
-        return res.status(502).send(`GAS Error (Status ${response.status}): ${gasError}`);
+        console.error(`[ERROR_GAS] GAS responded with status: ${response.status}`);
+      } else {
+        console.log(`[INFO] GAS accepted the event (hash: ${eventHash}).`);
       }
-      
-      // Jika SUKSES
-      console.log(`[DIAGNOSTIC_SUCCESS] GAS accepted the event (hash: ${eventHash}). Status: ${response.status}`);
-      
-    } catch (err) {
-      // Jika Vercel bahkan tidak bisa *menghubungi* GAS (salah URL, dll)
-      console.error(`[DIAGNOSTIC_ERROR_FETCH] Failed to forward event to GAS: ${err.message}`);
-      return res.status(502).send(`Fetch Error: ${err.message}`);
-    }
-    // --- AKHIR PERUBAHAN ---
+    })
+    .catch(err => {
+      console.error(`[ERROR_FETCH] Failed to forward event (hash: ${eventHash}) to GAS: ${err.message}`);
+    });
 
-    // 4. Jika semua berhasil, baru kita balas ke PowerShell
-    console.log(`[DIAGNOSTIC] Responding 'Hello API Event Received' to client.`);
+    // 5. Langsung Balas Cepat ke Klien (Dropbox Sign / PowerShell)
+    console.log(`[SUCCESS] Responding 'Hello API Event Received' for hash: ${eventHash}.`);
     res.setHeader('Content-Type', 'text/plain');
     return res.status(200).send('Hello API Event Received');
 
