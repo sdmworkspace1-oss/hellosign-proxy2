@@ -1,5 +1,4 @@
-// File: /api/hellosign.js (Versi DIAGNOSTIK - AWAIT)
-// TUJUAN: Memaksa Vercel untuk menunggu balasan GAS.
+// File: /api/hellosign.js (Versi FINAL - Wajib 'await')
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -25,7 +24,7 @@ export default async function handler(req, res) {
       rawDataString = JSON.stringify(body);
     }
 
-    // 2. Handle 'callback_test' (Tetap sama)
+    // 2. Handle 'callback_test'
     if (body.event && body.event.event_type === 'callback_test') {
       const challenge = body.event.event_data.challenge;
       console.log(`[INFO] Handling callback_test. Responding with challenge: ${challenge}`);
@@ -34,12 +33,10 @@ export default async function handler(req, res) {
     }
 
     const eventHash = body.event ? body.event.event_hash : 'unknown';
-    console.log(`[DIAGNOSTIC] Received event hash: ${eventHash}.`);
+    console.log(`[INFO] Received event hash: ${eventHash}.`);
 
-    // --- PERUBAHAN UTAMA DI SINI ---
-    // Kita akan 'await' fetch call ini.
-    // PowerShell akan 'hang' / menunggu selama proses ini.
-    console.log(`[DIAGNOSTIC] Forwarding to GAS... (awaiting response)`);
+    // 3. [PENTING] Kita WAJIB 'await' fetch call ini.
+    console.log(`[INFO] Forwarding to GAS... (awaiting response)`);
     
     try {
       const response = await fetch(GAS_WEB_APP_URL, {
@@ -49,25 +46,20 @@ export default async function handler(req, res) {
       });
       
       if (!response.ok) {
-        // Jika GAS error (misal: "Sheet not found" atau "Access Denied")
         const gasError = await response.text();
-        console.error(`[DIAGNOSTIC_ERROR_GAS] GAS responded with status: ${response.status}. Body: ${gasError}`);
-        // Kirim error GAS kembali ke PowerShell
+        console.error(`[ERROR_GAS] GAS responded with status: ${response.status}. Body: ${gasError}`);
         return res.status(502).send(`GAS Error (Status ${response.status}): ${gasError}`);
       }
       
-      // Jika SUKSES
-      console.log(`[DIAGNOSTIC_SUCCESS] GAS accepted the event (hash: ${eventHash}). Status: ${response.status}`);
+      console.log(`[INFO_SUCCESS] GAS accepted the event (hash: ${eventHash}). Status: ${response.status}`);
       
     } catch (err) {
-      // Jika Vercel bahkan tidak bisa *menghubungi* GAS (salah URL, dll)
-      console.error(`[DIAGNOSTIC_ERROR_FETCH] Failed to forward event to GAS: ${err.message}`);
+      console.error(`[ERROR_FETCH] Failed to forward event to GAS: ${err.message}`);
       return res.status(502).send(`Fetch Error: ${err.message}`);
     }
-    // --- AKHIR PERUBAHAN ---
 
-    // 4. Jika semua berhasil, baru kita balas ke PowerShell
-    console.log(`[DIAGNOSTIC] Responding 'Hello API Event Received' to client.`);
+    // 4. Jika semua berhasil, baru kita balas ke Klien
+    console.log(`[INFO] Responding 'Hello API Event Received' to client.`);
     res.setHeader('Content-Type', 'text/plain');
     return res.status(200).send('Hello API Event Received');
 
