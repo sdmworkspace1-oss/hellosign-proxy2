@@ -1,15 +1,14 @@
-// File: /api/hellosign.js (Versi FINAL v2 - dengan 'formidable')
+// File: /api/hellosign.js (Versi FINAL v3 - Perbaikan 'callback_test')
 import { formidable } from 'formidable';
 
-// 1. [BARU] NONAKTIFKAN body parser default Vercel
-// Ini penting agar 'formidable' bisa membaca stream-nya
+// 1. NONAKTIFKAN body parser default Vercel
 export const config = {
   api: {
     bodyParser: false,
   },
 };
 
-// 2. Handler utama (tetap 'await')
+// 2. Handler utama
 export default async function handler(req, res) {
   // Cek URL GAS (tetap sama)
   const GAS_WEB_APP_URL = process.env.GAS_WEB_APP_URL;
@@ -22,48 +21,51 @@ export default async function handler(req, res) {
   let rawDataString;
 
   try {
-    // --- [LOGIKA PARSING BARU] ---
+    // --- [LOGIKA PARSING (SUDAH BENAR)] ---
     console.log('[INFO] Menerima request. Parsing dengan formidable (multipart/form-data)...');
-    
-    // Inisialisasi 'formidable'
     const form = formidable(); 
-    
-    // 'form.parse' akan membaca request (req)
-    // dan mengembalikan 'fields' (data teks) dan 'files' (file)
     const [fields, files] = await form.parse(req);
 
-    // HelloSign mengirim JSON sebagai field teks bernama "json"
     if (!fields.json || !fields.json[0]) {
       throw new Error('Multipart/form-data diterima tapi field "json" tidak ditemukan.');
     }
 
-    // Ambil string JSON dari field "json"
     rawDataString = fields.json[0];
     body = JSON.parse(rawDataString);
     
     console.log('[INFO] Berhasil mem-parsing JSON dari field "json".');
-    // --- [AKHIR LOGIKA PARSING BARU] ---
+    // --- [AKHIR LOGIKA PARSING] ---
 
 
-    // 3. Handle 'callback_test' (Logika ini sekarang akan berhasil)
+    // 3. Handle 'callback_test' [DENGAN PERBAIKAN]
     if (body.event && body.event.event_type === 'callback_test') {
-      const challenge = body.event.event_data.challenge;
-      console.log(`[INFO] Handling callback_test. Responding with challenge: ${challenge}`);
-      res.setHeader('Content-Type', 'text/plain');
-      return res.status(200).send(challenge);
+      
+      // [PERBAIKAN DI SINI] Cek apakah 'event_data' dan 'challenge' ada
+      if (body.event.event_data && body.event.event_data.challenge) {
+        const challenge = body.event.event_data.challenge;
+        console.log(`[INFO] Handling callback_test. Responding with challenge: ${challenge}`);
+        res.setHeader('Content-Type', 'text/plain');
+        return res.status(200).send(challenge);
+      } else {
+        // Ini terjadi jika tombol "Test" mengirim payload 'callback_test' yang tidak lengkap
+        console.warn(`[WARN] 'callback_test' diterima tapi 'event_data.challenge' tidak ditemukan. Payload: ${rawDataString}`);
+        // Kita tetap balas 'OK' agar HelloSign senang (walaupun secara teknis ini gagal)
+        return res.status(200).send('Hello API Event Received (Test payload incomplete, ignored)');
+      }
     }
 
+    // --- Sisa kode (tetap sama) ---
     const eventHash = body.event ? body.event.event_hash : 'unknown';
     console.log(`[INFO] Received event hash: ${eventHash}.`);
 
-    // 4. [PENTING] Kita WAJIB 'await' fetch call ini.
+    // 4. 'await' fetch call (tetap sama)
     console.log(`[INFO] Forwarding to GAS... (awaiting response)`);
     
     try {
       const response = await fetch(GAS_WEB_APP_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: rawDataString, // Kirim string JSON mentah ke GAS
+        body: rawDataString, 
       });
       
       if (!response.ok) {
@@ -79,14 +81,14 @@ export default async function handler(req, res) {
       return res.status(502).send(`Fetch Error: ${err.message}`);
     }
 
-    // 5. Jika semua berhasil, baru kita balas ke Klien
+    // 5. Balas ke Klien (tetap sama)
     console.log(`[INFO] Responding 'Hello API Event Received' to client.`);
     res.setHeader('Content-Type', 'text/plain');
     return res.status(200).send('Hello API Event Received');
 
   } catch (error) {
     console.error(`[FATAL] Error in Vercel proxy handler: ${error.message}`);
-    console.error(error.stack); // Cetak stack trace untuk debug
+    console.error(error.stack); 
     return res.status(500).send('Internal Server Error: ' + error.message);
   }
 }
