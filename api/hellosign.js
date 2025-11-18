@@ -1,15 +1,14 @@
-// File: /api/hellosign.js (Versi dengan logging lebih baik)
+// File: /api/hellosign.js (Versi DIAGNOSTIK - AWAIT)
+// TUJUAN: Memaksa Vercel untuk menunggu balasan GAS.
 
 export default async function handler(req, res) {
-  // 1. Hanya izinkan POST
   if (req.method !== 'POST') {
     return res.status(405).send('Method Not Allowed');
   }
 
-  // 2. Ambil URL GAS dari Environment Variables
   const GAS_WEB_APP_URL = process.env.GAS_WEB_APP_URL;
   if (!GAS_WEB_APP_URL) {
-    console.error('[FATAL] GAS_WEB_APP_URL environment variable is not set.');
+    console.error('[FATAL] GAS_WEB_APP_URL is not set.');
     return res.status(500).send('Server configuration error.');
   }
 
@@ -17,18 +16,16 @@ export default async function handler(req, res) {
   let rawDataString;
 
   try {
-    // 3. Baca body (Dropbox Sign mengirim 'json=...' ATAU application/json)
+    // 1. Baca body
     if (req.body && req.body.json) {
-      rawDataString = req.body.json; // Ini adalah string: '{"event": ...}'
+      rawDataString = req.body.json;
       body = JSON.parse(rawDataString);
     } else {
-      // Fallback jika dikirim sebagai application/json murni
-      // (Seperti yang akan kita lakukan di tes Postman/curl)
       body = req.body;
       rawDataString = JSON.stringify(body);
     }
 
-    // 4. Handle 'callback_test'
+    // 2. Handle 'callback_test' (Tetap sama)
     if (body.event && body.event.event_type === 'callback_test') {
       const challenge = body.event.event_data.challenge;
       console.log(`[INFO] Handling callback_test. Responding with challenge: ${challenge}`);
@@ -36,32 +33,41 @@ export default async function handler(req, res) {
       return res.status(200).send(challenge);
     }
 
-    // 5. [LOGGING BARU] Catat event yang masuk
-    const eventType = body.event ? body.event.event_type : 'unknown';
     const eventHash = body.event ? body.event.event_hash : 'unknown';
-    console.log(`[INFO] Received event type: ${eventType}, hash: ${eventHash}.`);
+    console.log(`[DIAGNOSTIC] Received event hash: ${eventHash}.`);
 
-    // 6. Forward ke GAS (Fire and Forget)
-    fetch(GAS_WEB_APP_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: rawDataString,
-    })
-    .then(response => {
-      // Log ini terjadi *setelah* balasan dikirim ke Dropbox
+    // --- PERUBAHAN UTAMA DI SINI ---
+    // Kita akan 'await' fetch call ini.
+    // PowerShell akan 'hang' / menunggu selama proses ini.
+    console.log(`[DIAGNOSTIC] Forwarding to GAS... (awaiting response)`);
+    
+    try {
+      const response = await fetch(GAS_WEB_APP_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: rawDataString,
+      });
+      
       if (!response.ok) {
-        console.error(`[ERROR_GAS] GAS responded with status: ${response.status}`);
-      } else {
-        console.log(`[INFO] GAS accepted the event (hash: ${eventHash}).`);
+        // Jika GAS error (misal: "Sheet not found" atau "Access Denied")
+        const gasError = await response.text();
+        console.error(`[DIAGNOSTIC_ERROR_GAS] GAS responded with status: ${response.status}. Body: ${gasError}`);
+        // Kirim error GAS kembali ke PowerShell
+        return res.status(502).send(`GAS Error (Status ${response.status}): ${gasError}`);
       }
-    })
-    .catch(err => {
-      // Log ini terjadi jika Vercel bahkan tidak bisa *menghubungi* GAS
-      console.error(`[ERROR_FETCH] Failed to forward event (hash: ${eventHash}) to GAS: ${err.message}`);
-    });
+      
+      // Jika SUKSES
+      console.log(`[DIAGNOSTIC_SUCCESS] GAS accepted the event (hash: ${eventHash}). Status: ${response.status}`);
+      
+    } catch (err) {
+      // Jika Vercel bahkan tidak bisa *menghubungi* GAS (salah URL, dll)
+      console.error(`[DIAGNOSTIC_ERROR_FETCH] Failed to forward event to GAS: ${err.message}`);
+      return res.status(502).send(`Fetch Error: ${err.message}`);
+    }
+    // --- AKHIR PERUBAHAN ---
 
-    // 7. Balas Cepat ke Dropbox Sign
-    console.log(`[SUCCESS] Responding 'Hello API Event Received' to Dropbox Sign for hash: ${eventHash}.`);
+    // 4. Jika semua berhasil, baru kita balas ke PowerShell
+    console.log(`[DIAGNOSTIC] Responding 'Hello API Event Received' to client.`);
     res.setHeader('Content-Type', 'text/plain');
     return res.status(200).send('Hello API Event Received');
 
